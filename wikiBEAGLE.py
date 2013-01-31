@@ -216,7 +216,7 @@ def learner_loop(q_to_learner,q_from_learner):
 						words = line.split(' ')
 						j = 0
 						while j<len(words):
-							if 'http' in words[j]:
+							if ('http' in words[j]) or ('linkback' in words[j]):
 								junk = words.pop(j)
 							else:
 								j = j+1
