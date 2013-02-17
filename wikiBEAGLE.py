@@ -15,7 +15,7 @@ numpy.seterr('raise')
 vectorLength = 2**10
 
 def delHtml(text):
-  done = False
+	done = False
 	while not done:
 		if '<' in text:
 			i = 0
@@ -120,18 +120,6 @@ if not os.path.exists('freqs'):
 
 if not os.path.exists('sems'):
 	os.mkdir('sems')
-else:
-	formList = os.listdir('forms')
-	freqList = os.listdir('freqs')
-	semList = os.listdir('sems')
-	for form in formList:
-		if form not in semList:
-			os.remove('forms/'+form)
-		if form not in freqList:
-			os.remove('forms/'+form)
-	for freq in freqList:
-		if freq not in semList:
-			os.remove('freqs/'+freq)
 	
 
 opener = urllib2.build_opener()
@@ -228,8 +216,8 @@ def learner_loop(q_to_learner,q_from_learner):
 								# fout = open('paragraph.txt','w')
 								# fout.write(line)
 								# fout.close()
-								formList = os.listdir('forms')
-								wordNum = len(formList)
+								semList = os.listdir('sems')
+								wordNum = len(semList)
 								wordFreqList = {}
 								formVecList = {}
 								semVecList = {}
@@ -253,7 +241,7 @@ def learner_loop(q_to_learner,q_from_learner):
 										else: #new word (paragraph relative)
 											uniqueWords.append(word)
 											countList[word] = 1
-											if word in formList: #old word (absolute)
+											if word in semList: #old word (absolute)
 												tmp = open('forms/'+word,'r')
 												formVec = cPickle.load(tmp)
 												tmp.close()
