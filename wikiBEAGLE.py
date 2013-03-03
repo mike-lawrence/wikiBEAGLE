@@ -223,7 +223,7 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 			queueFromLearner.put(['paragraphs'])
 			queueFromLearner.put(['tokens',len(words)])
 			if not queueToLearner.empty():
-				tmp = open('wikiBeagleData/'+str(coreNum),'wb')
+				tmp = open('wikiBEAGLEdata/'+str(coreNum),'wb')
 				cPickle.dump([freqList,formList,contextList,orderList],tmp)
 				tmp.close()
 				sys.exit()
@@ -250,7 +250,7 @@ def killAndCleanUp():
 				paragraphNum += 1
 			elif message[0]=='tokens':
 				tokenNum = tokenNum + message[1]
-	tmp = open('wikiBeagleProgress.txt','w')
+	tmp = open('wikiBEAGLEprogress.txt','w')
 	tmp.write('\n'.join(map(str,[paragraphNum, tokenNum, int(round(timeTaken))])))
 	tmp.close()
 
@@ -261,8 +261,8 @@ def signalHandler(signal, frame):
 
 signal.signal(signal.SIGINT, signalHandler)
 
-if os.path.exists('wikiBeagleProgress.txt'):
-	tmp = open('wikiBeagleProgress.txt','r')
+if os.path.exists('wikiBEAGLEprogress.txt'):
+	tmp = open('wikiBEAGLEprogress.txt','r')
 	paragraphNum, tokenNum, timeTaken = map(int,tmp.readlines())
 	tmp.close()
 else:
@@ -275,11 +275,11 @@ os.system('clear')
 timeToPrint = str(datetime.timedelta(seconds=round(timeTaken + (time.time()-lastUpdateTime))))
 print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
 
-if not os.path.exists('wikiBeagleData'):
-	os.mkdir('wikiBeagleData')
+if not os.path.exists('wikiBEAGLEdata'):
+	os.mkdir('wikiBEAGLEdata')
 	runNum = 0
 else:
-	runNum = max(map(int,os.listdir('wikiBeagleData')))+1
+	runNum = max(map(int,os.listdir('wikiBEAGLEdata')))+1
 
 startLearners(runNum)
 
