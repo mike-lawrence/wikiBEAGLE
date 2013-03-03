@@ -1,6 +1,6 @@
 import sys
 try:
-	numCores = sys.argv[1]
+	numCores = int(sys.argv[1])
 except:
 	numCores = 1
 
@@ -163,7 +163,7 @@ queueToLearner = multiprocessing.Queue()
 queueFromLearner = multiprocessing.Queue()
 
 
-def learnerLoop(queueToLearner,queueFromLearner):
+def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 	def signalHandler(signal, frame):
 		pass
 	
@@ -223,14 +223,17 @@ def learnerLoop(queueToLearner,queueFromLearner):
 			queueFromLearner.put(['words',len(uniqueWords)])
 			queueFromLearner.put(['tokens',len(words)])
 			if not queueToLearner.empty():
-				queueFromLearner.put(['data',[freqList,formList,contextList,orderList]])
+				# queueFromLearner.put(['data',[freqList,formList,contextList,orderList]])
+				tmp = open('wikiBeagleData_'+str(coreNum)+'.pkl','wb')
+				cPickle.dump([freqList,formList,contextList,orderList],tmp)
+				tmp.close()
 				sys.exit()
 			
 	
 
 def startLearners():
-	for i in range(int(numCores)):
-		exec('learnerProcess'+str(i)+' = multiprocessing.Process(target=learnerLoop,args=(queueToLearner,queueFromLearner,))')
+	for i in range(numCores):
+		exec('learnerProcess'+str(i)+' = multiprocessing.Process(target=learnerLoop,args=('+str(i)+',queueToLearner,queueFromLearner,))')
 		exec('learnerProcess'+str(i)+'.start()')
 
 
@@ -252,9 +255,15 @@ def killAndCleanUp():
 				tokenNum = tokenNum + message[1]
 			elif message[0]=='words':
 				wordNum = wordNum + message[1]
-			elif message[0]=='data':
-				dataList.append(message[1])
+			# elif message[0]=='data':
+			# 	dataList.append(message[1])
 	print '\nAggregating data...'
+	for i in range(numCores):
+		if os.path.exists('wikiBeagleData_'+str(i)+'.pkl'):
+			tmp = open('wikiBeagleData_'+str(i)+'.pkl','rb')
+			dataList.append(cPickle.load(tmp))
+			tmp.close()
+			os.remove('wikiBeagleData_'+str(i)+'.pkl')			
 	if os.path.exists('wikiBeagleData.pkl'):
 		tmp = open('wikiBeagleData.pkl','rb')
 		oldData = cPickle.load(tmp)
