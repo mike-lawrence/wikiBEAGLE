@@ -1,3 +1,12 @@
+import sys
+try:
+	numCores = sys.argv[1]
+except:
+	numCores = 1
+
+#set the length of the vectors
+vectorLength = 2**10
+
 import datetime
 import multiprocessing
 import signal
@@ -8,12 +17,22 @@ import numpy
 import cPickle
 import urllib2
 import os
-import sys
+import shutil
 
-numpy.seterr('raise')
+#define a function to check the available memory
+def checkFreeMemory():
+	m = os.popen('ps -axmo %mem')
+	m = m.readlines()
+	m = m[1:-1]
+	for i in range(len(m)): m[i] = m[i].replace('\n','')
+	for i in range(len(m)): m[i] = m[i].replace(' ','')
+	for i in range(len(m)): m[i] = m[i].replace('.','')
+	for i in range(len(m)): m[i] = int(m[i])
+	free = 100-(sum(m)/10)
+	return free
 
-vectorLength = 2**10
 
+#define a function to delete some html in text
 def delHtml(text):
 	done = False
 	while not done:
@@ -32,6 +51,39 @@ def delHtml(text):
 			done = True
 	return(text)
 
+
+#define a function that cleans up a page of text from wikipedia, returning a list of paragraphs
+def cleanPage(page):
+	pageLines = page.readlines()
+	pageLinesFinal = []
+	for thisPageLine in pageLines:
+		if thisPageLine[0:3]=='<p>':
+			line = delHtml(thisPageLine)
+			line = line.replace('\n','')
+			line = line.lower() #convert to lowercase
+			line = ''.join(re.findall('[a-z -]', line)) #keep only letters, spaces and dashes
+			line = line.replace('/',' ')
+			line = line.replace('citation needed',' ')
+			line = line.replace(' - ',' ')
+			line = line.strip()
+			while '  ' in line:
+				line = line.replace('  ',' ')
+			if line!='':
+				words = line.split(' ')
+				j = 0
+				while j<len(words):
+					temp = words[j].replace('-','')
+					if (len(temp)<(len(words[j])-1)) or ('http' in words[j]) or ('ftp' in words[j]) or ('linkback' in words[j]) or (len(words[j])>30) or (words[j]==''):
+						trash = words.pop(j)
+						del trash
+					else:
+						j = j+1
+				if len(words)>2:
+					pageLinesFinal.append(' '.join(words))
+	return pageLinesFinal
+
+
+#define some functions (borrowed from holoword.py)
 
 def normalize(a):
 	'''
@@ -63,9 +115,8 @@ def seqOrdConv(l , p1, p2 ):
 	return reduce(lambda a,b: normalize(ordConv(a, b, p1, p2)), l)
 
 
+#modified from holoword.py
 def getOpenNGrams(word, charVecList, charPlaceholder):
-	# fout = open('tmp.txt','w')
-	# fout.write(word+'\n')
 	ngrams = []
 	sizes = range(len(word))[2:len(word)]
 	sizes.append(len(word))
@@ -73,7 +124,6 @@ def getOpenNGrams(word, charVecList, charPlaceholder):
 		for i in xrange(len(word)):
 			if i+size > len(word): break
 			tmp = []
-			# fout.write(word[i:(i+size)]+'\n')
 			for char in word[i:(i+size)]:
 				tmp.append(charVecList[char])
 			ngrams.append(tmp)
@@ -81,244 +131,210 @@ def getOpenNGrams(word, charVecList, charPlaceholder):
 			for b in xrange(1, size):
 				for e in xrange(1, len(word)-i-size+1):
 					tmp = []
-					# fout.write(word[i:(i+b)]+'_'+word[(i+b+e):(i+e+size)]+'\n')
 					for char in word[i:(i+b)]:
 						tmp.append(charVecList[char])
 					tmp.append(charPlaceholder)
 					for char in word[(i+b+e):(i+e+size)]:
 						tmp.append(charVecList[char])
 					ngrams.append(tmp)
-	# fout.close()
 	return ngrams
 
 
-if not os.path.exists('rands'):
-	numpy.random.seed(112358) #set the numpy random seed for (some) replicability
-	chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '-']
-	charVecList = {}
-	for char in chars:
-		charVecList[char] = normalize(numpy.random.randn(vectorLength) * vectorLength**-0.5)
-	os.mkdir('rands')
-	charPlaceholder = normalize(numpy.random.randn(vectorLength) * vectorLength**-0.5)
-	wordPlaceholder = normalize(numpy.random.randn(vectorLength) * vectorLength**-0.5)
-	perm1 = numpy.random.permutation(vectorLength)
-	perm2 = numpy.random.permutation(vectorLength)
-	tmp = open('rands/rands','w')
-	cPickle.dump([chars,charVecList,charPlaceholder,wordPlaceholder,perm1,perm2],tmp)
-	tmp.close()
-else:
-	tmp = open('rands/rands','r')
-	chars,charVecList,charPlaceholder,wordPlaceholder,perm1,perm2 = cPickle.load(tmp)
-	tmp.close()	
+#initialize the character, placeholder and permutation vectors
+numpy.random.seed(112358) #set the numpy random seed for (some) replicability
+chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '-']
+charVecList = {}
+for char in chars:
+	charVecList[char] = normalize(numpy.random.randn(vectorLength) * vectorLength**-0.5)
+charPlaceholder = normalize(numpy.random.randn(vectorLength) * vectorLength**-0.5)
+wordPlaceholder = normalize(numpy.random.randn(vectorLength) * vectorLength**-0.5)
+perm1 = numpy.random.permutation(vectorLength)
+perm2 = numpy.random.permutation(vectorLength)
 
 
-if not os.path.exists('forms'):
-	os.mkdir('forms')
-
-if not os.path.exists('freqs'):
-	os.mkdir('freqs')
-
-if not os.path.exists('sems'):
-	os.mkdir('sems')
-	
-
+#initialize an object that can open urls
 opener = urllib2.build_opener()
 opener.addheaders = [('User-agent', 'Mozilla/5.0')]
 
-q_to_learner = multiprocessing.Queue()
-q_from_learner = multiprocessing.Queue()
+queueToLearner = multiprocessing.Queue()
+queueFromLearner = multiprocessing.Queue()
 
-def learner_loop(q_to_learner,q_from_learner):
-	def learner_signal_handler(signal, frame):
+
+def learnerLoop(queueToLearner,queueFromLearner):
+	def signalHandler(signal, frame):
 		pass
-	signal.signal(signal.SIGINT, learner_signal_handler)
-	formList = os.listdir('forms')
-	freqList = os.listdir('freqs')
-	semList = os.listdir('sems')
-	if os.path.exists('progress.txt'):
-		progressFile = open('progress.txt','r')
-		progress = progressFile.readlines()
-		progressFile.close()
-		progress = progress[-1]
-		progress = progress.split()
-		pageNum = int(progress[0])
-		paragraphNum = int(progress[1])
-		wordNum = len(semList)
-		tokenNum = int(progress[3])
-		timeTaken = progress[4]
-		if not (':' in timeTaken):
-			days = float(timeTaken)
-			timeTaken = progress[6]	
+	
+	signal.signal(signal.SIGINT, signalHandler)
+	
+	freqList = {}
+	formList = {}
+	contextList = {}
+	orderList = {}
+	while True:
+		page = 0
+		while page==0:
+			try:
+				page = opener.open('http://en.wikipedia.org/wiki/Special:Random')
+			except:
+				pass
+			pageLines = cleanPage(page)
+			if len(pageLines)==0:
+				page = 0
+		for line in pageLines:
+			uniqueWords = []
+			freqListLine = {}
+			words = line.split(' ')
+			for word in words:
+				if word not in uniqueWords:
+					uniqueWords.append(word)
+					freqListLine[word] = 1
+				else:
+					freqListLine[word] += 1
+			for word in uniqueWords:
+				if not word in formList:
+					formList[word] = normalize(numpy.add.reduce([seqOrdConv(ngram,perm1,perm2) for ngram in getOpenNGrams(word, charVecList, charPlaceholder)]))
+					contextList[word] = numpy.zeros(vectorLength)
+					orderList[word] = numpy.zeros(vectorLength)
+					freqList[word] = freqListLine[word]
+				else:
+					freqList[word] = freqList[word] + freqListLine[word]
+			#perform encoding
+			for j in range(len(words)):
+				word = words[j]
+				#context encoding
+				for k in range(len(words)):
+					if j!=k:
+						contextList[word] = contextList[word] + formList[words[k]]/freqList[words[k]] #weighting contribution by inverse frequency
+				#order encoding
+				for order in [1,2,3,4,5,6,7]: #only encode up to 7-grams
+					order = order + 1
+					for k in range(order):
+						if (j-k)>=0:
+							if (j+(order-k))<=len(words):
+								wordsTmp = words[(j-k):(j+(order-k))]
+								forms = [formList[wordTmp] for wordTmp in wordsTmp]
+								forms[k] = wordPlaceholder
+								orderList[word] = orderList[word] + seqOrdConv(forms,perm1,perm2)
+			#done a paragraph
+			queueFromLearner.put(['paragraphs'])
+			queueFromLearner.put(['words',len(uniqueWords)])
+			queueFromLearner.put(['tokens',len(words)])
+			if not queueToLearner.empty():
+				queueFromLearner.put(['data',[freqList,formList,contextList,orderList]])
+				sys.exit()
+			
+	
+
+def startLearners():
+	for i in range(int(numCores)):
+		exec('learnerProcess'+str(i)+' = multiprocessing.Process(target=learnerLoop,args=(queueToLearner,queueFromLearner,))')
+		exec('learnerProcess'+str(i)+'.start()')
+
+
+startLearners()
+
+def killAndCleanUp():
+	global paragraphNum
+	global tokenNum
+	global wordNum
+	print '\nKilling learners...'
+	queueToLearner.put('die')
+	dataList = []
+	while len(multiprocessing.active_children())>0:
+		if queueFromLearner.empty():
+			time.sleep(1)
 		else:
-			days = 0	
-		timeTaken = timeTaken.split(':')
-		hours = float(timeTaken[0])
-		minutes = float(timeTaken[1])
-		seconds = float(timeTaken[2])
-		timeTaken = days*24*60*60 + hours*60*60 + minutes*60 + seconds
+			message = queueFromLearner.get()
+			if message[0]=='paragraphs':
+				paragraphNum += 1
+			elif message[0]=='tokens':
+				tokenNum = tokenNum + message[1]
+			elif message[0]=='words':
+				wordNum = wordNum + message[1]
+			elif message[0]=='data':
+				dataList.append(message[1])
+	print '\nAggregating data...'
+	if os.path.exists('wikiBeagleData.pkl'):
+		tmp = open('wikiBeagleData.pkl','rb')
+		oldData = cPickle.load(tmp)
+		tmp.close()
+		freqList = oldData[0]
+		formList = oldData[1]
+		contextList = oldData[2]
+		orderList = oldData[3]
 	else:
-		progressFile = open('progress.txt','w')
-		progressFile.write('pageNum paragraphNum wordNum tokenNum timeTaken\n')
-		progressFile.close()
-		pageNum = 0
-		paragraphNum = 0
-		wordNum = 0
-		tokenNum = 0
-		timeTaken = 0
-	os.system('clear')
-	timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
-	print 'wikiBEAGLE\n\nPages: '+str(pageNum)+'  Paragraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
-	done = False
-	while not done:
-		infile = 0
-		try:
-			infile = opener.open('http://en.wikipedia.org/wiki/Special:Random')
-		except:
-			pass
-		if infile!=0:
-			pageNum += 1
-			pageLines = infile.readlines()
-			i = -1
-			while i < (len(pageLines)-1):
-				i += 1
-				if pageLines[i][0:3]=='<ti':
-					start = 7
-					stop = 8
-					while pageLines[i][stop:(stop+12)]!=' - Wikipedia':
-						stop = stop+1
-					title = pageLines[i][start:stop]
-					print '\n'+title
-				if pageLines[i][0:3]=='<p>':
-					line = delHtml(pageLines[i])
-					line = line.replace('\n','')
-					line = line.lower() #convert to lowercase
-					line = ''.join(re.findall('[a-z -]', line)) #keep only letters, spaces and dashes
-					line = line.replace('/',' ')
-					line = line.replace('citation needed',' ')
-					line = line.replace(' - ',' ')
-					line = line.strip()
-					while '  ' in line:
-						line = line.replace('  ',' ')
-					if line!='':
-						paragraphNum += 1
-						words = line.split(' ')
-						j = 0
-						while j<len(words):
-							if ('http' in words[j]) or ('linkback' in words[j]):
-								junk = words.pop(j)
-							else:
-								j = j+1
-						if len(words)>1: #only process if more than one word
-							if not q_to_learner.empty():
-								done = True
-							else:
-								#begin processing paragraph
-								# fout = open('paragraph.txt','w')
-								# fout.write(line)
-								# fout.close()
-								semList = os.listdir('sems')
-								wordNum = len(semList)
-								wordFreqList = {}
-								formVecList = {}
-								semVecList = {}
-								uniqueWords = []
-								countList = {}
-								startTime = time.time()
-								os.system('clear')
-								timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
-								print 'wikiBEAGLE\n\nPages: '+str(pageNum)+'  Paragraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
-								print '\n'+title
-								print '\n'+' '.join(words)
-								#get the data on each word
-								for j in range(len(words)):
-									word = words[j]
-									if len(word)>255: #truncate to the OS X filename limit
-										word = word[0:255]
-									if word != '':
-										tokenNum += 1
-										if word in uniqueWords: #old word (paragraph relative)
-											countList[word] += 1
-										else: #new word (paragraph relative)
-											uniqueWords.append(word)
-											countList[word] = 1
-											if word in semList: #old word (absolute)
-												tmp = open('forms/'+word,'r')
-												formVec = cPickle.load(tmp)
-												tmp.close()
-												tmp = open('sems/'+word,'r')
-												semVec = cPickle.load(tmp)
-												tmp.close()
-												tmp = open('freqs/'+word,'r')
-												wordFreq = cPickle.load(tmp) + countList[word]
-												tmp.close()
-											else: #new word, need to compute form vector
-												ngrams = getOpenNGrams(word, charVecList, charPlaceholder)
-												formVec = normalize(numpy.add.reduce([seqOrdConv(ngram,perm1,perm2) for ngram in ngrams]))
-												wordFreq = countList[word]
-												semVec = numpy.zeros(vectorLength)
-												tmp = open('forms/'+word,'w')
-												cPickle.dump(formVec,tmp)
-												tmp.close()
-												formList.append(word)
-											tmp = open('freqs/'+word,'w')
-											cPickle.dump(wordFreq,tmp)
-											tmp.close()							
-											formVecList[word] = formVec
-											wordFreqList[word] = wordFreq
-											semVecList[word] = semVec
-								#now update the semantic vectors
-								for j in range(len(words)):
-									word = words[j]
-									#context encoding
-									contextVec = numpy.zeros(vectorLength)
-									for k in range(len(words)):
-										if j!=k:
-											contextVec = contextVec + formVecList[words[k]]/wordFreqList[words[k]] #weighting contribution by inverse frequency
-									contextVec = normalize(contextVec)
-									#order encoding
-									orderVec = numpy.zeros(vectorLength)
-									for order in [1,2,3,4,5,6,7]: #only encode up to 7-grams
-										order = order + 1
-										for k in range(order):
-											if (j-k)>=0:
-												if (j+(order-k))<=len(words):
-													wordsTmp = words[(j-k):(j+(order-k))]
-													forms = [formVecList[wordTmp] for wordTmp in wordsTmp]
-													forms[k] = wordPlaceholder
-													orderVec = orderVec + seqOrdConv(forms,perm1,perm2)
-									#combine superpose context and order info with old vector 
-									semVecList[word] = semVecList[word] + normalize(orderVec) + normalize(contextVec)
-								#save updated semantic vectors
-								for word in uniqueWords:
-									tmp = open('sems/'+word,'w')
-									cPickle.dump(semVecList[word],tmp)
-									tmp.close()
-								timeTaken = timeTaken + (time.time()-startTime)
-								timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
-								progressFile = open('progress.txt','a')
-								progressFile.write(' '.join(map(str,[pageNum,paragraphNum,wordNum,tokenNum,timeToPrint]))+'\n')
-								progressFile.close()
-	os.system('clear')
-	semList = os.listdir('sems')
-	wordNum = len(semList)
-	print 'wikiBEAGLE\n\nPages: '+str(pageNum)+'  Paragraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
-	progressFile = open('progress.txt','a')
-	progressFile.write(' '.join(map(str,[pageNum,paragraphNum,wordNum,tokenNum,timeToPrint]))+'\n')
-	progressFile.close()
-	q_from_learner.put('done')
+		freqList = dataList[0][0]
+		formList = dataList[0][1]
+		contextList = dataList[0][2]
+		orderList = dataList[0][3]
+		trash = dataList.pop(0)
+		del trash
+	for i in range(len(dataList)):
+		for j in dataList[i][0]:
+			if j in freqList:
+				freqList[j] = freqList[j] + dataList[i][0][j]
+				formList[j] = formList[j] + dataList[i][1][j]
+				contextList[j] = contextList[j] + dataList[i][2][j]
+				orderList[j] = orderList[j] + dataList[i][3][j]
+			else:
+				freqList[j] = dataList[i][0][j]
+				formList[j] = dataList[i][1][j]
+				contextList[j] = dataList[i][2][j]
+				orderList[j] = dataList[i][3][j]					
+	tmp = open('wikiBeagleData.pkl','wb')
+	cPickle.dump([freqList,formList,contextList,orderList],tmp)
+	tmp.close()
+	tmp = open('wikiBeagleProgress.txt','w')
+	tmp.write('\n'.join(map(str,[paragraphNum, wordNum, tokenNum, timeTaken])))
+	tmp.close()
 
 
-learner_process = multiprocessing.Process(target=learner_loop,args=(q_to_learner,q_from_learner,))
-learner_process.start()
+def signalHandler(signal, frame):
+	killAndCleanUp()
+	sys.exit()
 
-def signal_handler(signal, frame):
-	print 'Quitting...'
-	q_to_learner.put('quit')
-	while q_from_learner.empty():
+
+signal.signal(signal.SIGINT, signalHandler)
+
+if os.path.exists('wikiBeagleProgress.txt'):
+	tmp = open('wikiBeagleProgress.txt','r')
+	paragraphNum, wordNum, tokenNum, timeTaken = tmp.readlines()
+	tmp.close()
+else:
+	paragraphNum = 0
+	wordNum = 0
+	tokenNum = 0
+	timeTaken = 0
+
+lastUpdateTime = time.time()
+os.system('clear')
+timeToPrint = str(datetime.timedelta(seconds=round(timeTaken + (time.time()-lastUpdateTime))))
+print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
+
+while len(multiprocessing.active_children())>0:
+	if queueFromLearner.empty():
 		time.sleep(1)
-	sys.exit(0)
+	else:
+		message = queueFromLearner.get()
+		if message[0]=='paragraphs':
+			paragraphNum += 1
+		elif message[0]=='tokens':
+			tokenNum = tokenNum + message[1]
+		elif message[0]=='words':
+			wordNum = wordNum + message[1]
+	if (time.time()-lastUpdateTime)>1:
+		timeTaken += (time.time()-lastUpdateTime)
+		lastUpdateTime = time.time()
+		os.system('clear')
+		timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
+		print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
+		if checkFreeMemory()<55:
+			print '\nMemory low, cleaning up:'
+			killAndCleanUp()
+			print '\nRestarting learners...'
+			startLearners()
 
-signal.signal(signal.SIGINT, signal_handler)
-
-while True:
-	time.sleep(1)
+	
+	
+	
+			
