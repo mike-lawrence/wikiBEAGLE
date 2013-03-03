@@ -221,7 +221,6 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 								orderList[word] = orderList[word] + seqOrdConv(forms,perm1,perm2)
 			#done a paragraph
 			queueFromLearner.put(['paragraphs'])
-			queueFromLearner.put(['words',len(uniqueWords)])
 			queueFromLearner.put(['tokens',len(words)])
 			if not queueToLearner.empty():
 				tmp = open('wikiBeagleData/'+str(coreNum),'wb')
@@ -239,7 +238,6 @@ def startLearners(runNum):
 def killAndCleanUp():
 	global paragraphNum
 	global tokenNum
-	global wordNum
 	print '\nKilling learners...'
 	queueToLearner.put('die')
 	dataList = []
@@ -252,10 +250,8 @@ def killAndCleanUp():
 				paragraphNum += 1
 			elif message[0]=='tokens':
 				tokenNum = tokenNum + message[1]
-			elif message[0]=='words':
-				wordNum = wordNum + message[1]
 	tmp = open('wikiBeagleProgress.txt','w')
-	tmp.write('\n'.join(map(str,[paragraphNum, wordNum, tokenNum, int(round(timeTaken))])))
+	tmp.write('\n'.join(map(str,[paragraphNum, tokenNum, int(round(timeTaken))])))
 	tmp.close()
 
 
@@ -267,18 +263,17 @@ signal.signal(signal.SIGINT, signalHandler)
 
 if os.path.exists('wikiBeagleProgress.txt'):
 	tmp = open('wikiBeagleProgress.txt','r')
-	paragraphNum, wordNum, tokenNum, timeTaken = map(int,tmp.readlines())
+	paragraphNum, tokenNum, timeTaken = map(int,tmp.readlines())
 	tmp.close()
 else:
 	paragraphNum = 0
-	wordNum = 0
 	tokenNum = 0
 	timeTaken = 0
 
 lastUpdateTime = time.time()
 os.system('clear')
 timeToPrint = str(datetime.timedelta(seconds=round(timeTaken + (time.time()-lastUpdateTime))))
-print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
+print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
 
 if not os.path.exists('wikiBeagleData'):
 	os.mkdir('wikiBeagleData')
@@ -302,14 +297,12 @@ while len(multiprocessing.active_children())>0:
 			paragraphNum += 1
 		elif message[0]=='tokens':
 			tokenNum = tokenNum + message[1]
-		elif message[0]=='words':
-			wordNum = wordNum + message[1]
 	if (time.time()-lastUpdateTime)>1:
 		timeTaken += (time.time()-lastUpdateTime)
 		lastUpdateTime = time.time()
 		os.system('clear')
 		timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
-		print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
+		print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
 		if checkFreeMemory()<lowMemCleanPoint:
 			print '\nMemory low, cleaning up:'
 			killAndCleanUp()
