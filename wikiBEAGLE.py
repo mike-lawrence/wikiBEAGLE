@@ -1,8 +1,9 @@
 import sys
-try:
-	numCores = int(sys.argv[1])
-except:
+
+if len(sys.argv)==1:
 	numCores = 1
+else:
+	numCores = int(sys.argv[1])
 
 #set the length of the vectors
 vectorLength = 2**10
@@ -223,17 +224,15 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 			queueFromLearner.put(['words',len(uniqueWords)])
 			queueFromLearner.put(['tokens',len(words)])
 			if not queueToLearner.empty():
-				# queueFromLearner.put(['data',[freqList,formList,contextList,orderList]])
-				tmp = open('wikiBeagleData_'+str(coreNum)+'.pkl','wb')
+				tmp = open('wikiBeagleData/'+str(coreNum),'wb')
 				cPickle.dump([freqList,formList,contextList,orderList],tmp)
 				tmp.close()
 				sys.exit()
-			
-	
 
-def startLearners():
+
+def startLearners(runNum):
 	for i in range(numCores):
-		exec('learnerProcess'+str(i)+' = multiprocessing.Process(target=learnerLoop,args=('+str(i)+',queueToLearner,queueFromLearner,))')
+		exec('learnerProcess'+str(i)+' = multiprocessing.Process(target=learnerLoop,args=('+str(runNum+i)+',queueToLearner,queueFromLearner,))')
 		exec('learnerProcess'+str(i)+'.start()')
 
 
@@ -255,45 +254,6 @@ def killAndCleanUp():
 				tokenNum = tokenNum + message[1]
 			elif message[0]=='words':
 				wordNum = wordNum + message[1]
-			# elif message[0]=='data':
-			# 	dataList.append(message[1])
-	print '\nAggregating data...'
-	for i in range(numCores):
-		if os.path.exists('wikiBeagleData_'+str(i)+'.pkl'):
-			tmp = open('wikiBeagleData_'+str(i)+'.pkl','rb')
-			dataList.append(cPickle.load(tmp))
-			tmp.close()
-			os.remove('wikiBeagleData_'+str(i)+'.pkl')			
-	if os.path.exists('wikiBeagleData.pkl'):
-		tmp = open('wikiBeagleData.pkl','rb')
-		oldData = cPickle.load(tmp)
-		tmp.close()
-		freqList = oldData[0]
-		formList = oldData[1]
-		contextList = oldData[2]
-		orderList = oldData[3]
-	else:
-		freqList = dataList[0][0]
-		formList = dataList[0][1]
-		contextList = dataList[0][2]
-		orderList = dataList[0][3]
-		trash = dataList.pop(0)
-		del trash
-	for i in range(len(dataList)):
-		for j in dataList[i][0]:
-			if j in freqList:
-				freqList[j] = freqList[j] + dataList[i][0][j]
-				formList[j] = formList[j] + dataList[i][1][j]
-				contextList[j] = contextList[j] + dataList[i][2][j]
-				orderList[j] = orderList[j] + dataList[i][3][j]
-			else:
-				freqList[j] = dataList[i][0][j]
-				formList[j] = dataList[i][1][j]
-				contextList[j] = dataList[i][2][j]
-				orderList[j] = dataList[i][3][j]					
-	tmp = open('wikiBeagleData.pkl','wb')
-	cPickle.dump([freqList,formList,contextList,orderList],tmp)
-	tmp.close()
 	tmp = open('wikiBeagleProgress.txt','w')
 	tmp.write('\n'.join(map(str,[paragraphNum, wordNum, tokenNum, int(round(timeTaken))])))
 	tmp.close()
@@ -302,7 +262,6 @@ def killAndCleanUp():
 def signalHandler(signal, frame):
 	killAndCleanUp()
 	sys.exit()
-
 
 signal.signal(signal.SIGINT, signalHandler)
 
@@ -321,8 +280,13 @@ os.system('clear')
 timeToPrint = str(datetime.timedelta(seconds=round(timeTaken + (time.time()-lastUpdateTime))))
 print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
 
+if not os.path.exists('wikiBeagleData'):
+	os.mkdir('wikiBeagleData')
+	runNum = 0
+else:
+	runNum = max(map(int,os.listdir('wikiBeagleData')))+1
 
-startLearners()
+startLearners(runNum)
 
 while len(multiprocessing.active_children())>0:
 	if len(multiprocessing.active_children())<numCores:
