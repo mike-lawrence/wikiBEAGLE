@@ -9,13 +9,13 @@ if os.path.exists('wikiBEAGLEdata'):
 		os.system('clear')
 		startTime = time.time()
 		print 'wikiBEAGLEcleaner\n\nCleaning...'
-		file = files.pop()
+		file = files.pop(0)
 		tmp = open('wikiBEAGLEdata/'+file,'rb')
 		freqList,formList,contextList,orderList = cPickle.load(tmp)
 		tmp.close()
 		os.remove('wikiBEAGLEdata/'+file)
 		while len(files)>0:
-			file = files.pop()
+			file = files.pop(0)
 			os.system('clear')
 			print 'wikiBEAGLEcleaner\n\nCleaning...'
 			print '\n\nFiles left: '+str(len(files)+1)
