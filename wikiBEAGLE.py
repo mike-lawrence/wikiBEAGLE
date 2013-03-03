@@ -234,8 +234,6 @@ def startLearners():
 		exec('learnerProcess'+str(i)+'.start()')
 
 
-startLearners()
-
 def killAndCleanUp():
 	global paragraphNum
 	global tokenNum
@@ -314,7 +312,15 @@ os.system('clear')
 timeToPrint = str(datetime.timedelta(seconds=round(timeTaken + (time.time()-lastUpdateTime))))
 print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
 
+
+startLearners()
+
 while len(multiprocessing.active_children())>0:
+	if len(multiprocessing.active_children())<numCores:
+		print '\nSomething went awry; cleaning up just in case:'
+		killAndCleanUp()
+		print '\nRestarting learners...'
+		startLearners()
 	if queueFromLearner.empty():
 		time.sleep(1)
 	else:
@@ -337,6 +343,5 @@ while len(multiprocessing.active_children())>0:
 			print '\nRestarting learners...'
 			startLearners()
 
-	
 	
 	
