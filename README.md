@@ -9,4 +9,4 @@ Data is stored in memory until memory runs low, at which point it is written to 
 
 Quit via `ctrl-c` keys, which will permit wikiBEAGLE to store the data to file and resume where it left off next time you run it.
 
-Use wikiBEAGLEcleaner.py to aggregate all saved files to a single dataset for use in semantic analysis.
+Use wikiBEAGLEcleaner.py to aggregate all saved files to a single dataset for use in semantic analysis (or to simply get a count of the unique words learned thus far).
