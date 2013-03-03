@@ -181,9 +181,10 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 				page = opener.open('http://en.wikipedia.org/wiki/Special:Random')
 			except:
 				pass
-			pageLines = cleanPage(page)
-			if len(pageLines)==0:
-				page = 0
+			if not page==0:
+				pageLines = cleanPage(page)
+				if len(pageLines)==0:
+					page = 0
 		for line in pageLines:
 			uniqueWords = []
 			freqListLine = {}
@@ -279,7 +280,15 @@ if not os.path.exists('wikiBEAGLEdata'):
 	os.mkdir('wikiBEAGLEdata')
 	runNum = 0
 else:
-	runNum = max(map(int,os.listdir('wikiBEAGLEdata')))+1
+	files = os.listdir('wikiBEAGLEdata')
+	for i in range(len(files)):
+		if files[i][0]=='.':
+			trash = files.pop(i)
+			del trash
+	if len(files)>0:
+		runNum = max(map(int,files))+1
+	else:
+		runNum = 0
 
 startLearners(runNum)
 
@@ -302,8 +311,9 @@ while len(multiprocessing.active_children())>0:
 		lastUpdateTime = time.time()
 		os.system('clear')
 		timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
-		print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
-		if checkFreeMemory()<lowMemCleanPoint:
+		freeMem = checkFreeMemory()
+		print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint+'  Free Memory: '+str(freeMem)+'%'
+		if freeMem<lowMemCleanPoint:
 			print '\nMemory low, cleaning up:'
 			killAndCleanUp()
 			print '\nRestarting learners...'
