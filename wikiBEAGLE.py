@@ -7,6 +7,9 @@ except:
 #set the length of the vectors
 vectorLength = 2**10
 
+#set the amount of free memory (%) below which cleaning will take place
+lowMemCleanPoint = 10
+
 import datetime
 import multiprocessing
 import signal
@@ -285,7 +288,7 @@ def killAndCleanUp():
 	cPickle.dump([freqList,formList,contextList,orderList],tmp)
 	tmp.close()
 	tmp = open('wikiBeagleProgress.txt','w')
-	tmp.write('\n'.join(map(str,[paragraphNum, wordNum, tokenNum, timeTaken])))
+	tmp.write('\n'.join(map(str,[paragraphNum, wordNum, tokenNum, int(round(timeTaken))])))
 	tmp.close()
 
 
@@ -298,7 +301,7 @@ signal.signal(signal.SIGINT, signalHandler)
 
 if os.path.exists('wikiBeagleProgress.txt'):
 	tmp = open('wikiBeagleProgress.txt','r')
-	paragraphNum, wordNum, tokenNum, timeTaken = tmp.readlines()
+	paragraphNum, wordNum, tokenNum, timeTaken = map(int,tmp.readlines())
 	tmp.close()
 else:
 	paragraphNum = 0
@@ -328,7 +331,7 @@ while len(multiprocessing.active_children())>0:
 		os.system('clear')
 		timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
 		print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
-		if checkFreeMemory()<55:
+		if checkFreeMemory()<lowMemCleanPoint:
 			print '\nMemory low, cleaning up:'
 			killAndCleanUp()
 			print '\nRestarting learners...'
@@ -337,4 +340,3 @@ while len(multiprocessing.active_children())>0:
 	
 	
 	
-			
