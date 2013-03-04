@@ -281,10 +281,13 @@ if not os.path.exists('wikiBEAGLEdata'):
 	runNum = 0
 else:
 	files = os.listdir('wikiBEAGLEdata')
-	for i in range(len(files)):
+	i = 0
+	while i < len(files):
 		if files[i][0]=='.':
 			trash = files.pop(i)
 			del trash
+		else:
+			i = i + 1
 	if len(files)>0:
 		runNum = max(map(int,files))+1
 	else:
@@ -319,5 +322,3 @@ while len(multiprocessing.active_children())>0:
 			print '\nRestarting learners...'
 			startLearners()
 
-	
-	
