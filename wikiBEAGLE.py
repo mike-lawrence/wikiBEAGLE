@@ -169,11 +169,8 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 		pass
 	
 	signal.signal(signal.SIGINT, signalHandler)
-	
-	freqList = {}
-	formList = {}
-	contextList = {}
-	orderList = {}
+	os.mkdir('wikiBEAGLEdata/'+str(coreNum))
+	wordList = {}
 	while True:
 		page = 0
 		while page==0:
@@ -186,30 +183,41 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 				if len(pageLines)==0:
 					page = 0
 		for line in pageLines:
-			uniqueWords = []
-			freqListLine = {}
+			uniqueWords = {}
 			words = line.split(' ')
 			for word in words:
 				if word not in uniqueWords:
-					uniqueWords.append(word)
-					freqListLine[word] = 1
+					uniqueWords[word] = 1
 				else:
-					freqListLine[word] += 1
+					uniqueWords[word] += 1
 			for word in uniqueWords:
-				if not word in formList:
-					formList[word] = normalize(numpy.add.reduce([seqOrdConv(ngram,perm1,perm2) for ngram in getOpenNGrams(word, charVecList, charPlaceholder)]))
-					contextList[word] = numpy.zeros(vectorLength)
-					orderList[word] = numpy.zeros(vectorLength)
-					freqList[word] = freqListLine[word]
+				if not word in wordList:
+					newSize = len(wordList)+1
+					if newSize==1:
+						formList = numpy.zeros(shape=(newSize,vectorLength))
+						contextList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/context', mode='w+', dtype='float', shape=(newSize,vectorLength))
+						orderList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/order', mode='w+', dtype='float', shape=(newSize,vectorLength))						
+					else:
+						formList.resize((newSize,vectorLength))
+						del contextList
+						del orderList
+						contextList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/context', mode='r+', dtype='float', shape=(newSize,vectorLength))
+						orderList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/order', mode='r+', dtype='float', shape=(newSize,vectorLength))
+					formList[newSize-1] = normalize(numpy.add.reduce([seqOrdConv(ngram,perm1,perm2) for ngram in getOpenNGrams(word, charVecList, charPlaceholder)]))
+					wordList[word] = {}
+					wordList[word]['frequency'] = uniqueWords[word]
+					wordList[word]['index'] = newSize-1
 				else:
-					freqList[word] = freqList[word] + freqListLine[word]
+					wordList[word]['frequency'] += uniqueWords[word]
 			#perform encoding
 			for j in range(len(words)):
 				word = words[j]
+				index = wordList[word]['index']
 				#context encoding
 				for k in range(len(words)):
 					if j!=k:
-						contextList[word] = contextList[word] + formList[words[k]]/freqList[words[k]] #weighting contribution by inverse frequency
+						addWord = wordList[words[k]]
+						contextList[index] = contextList[index] + formList[addWord['index']]/addWord['frequency'] #weighting contribution by inverse frequency
 				#order encoding
 				for order in [1,2,3,4,5,6,7]: #only encode up to 7-grams
 					order = order + 1
@@ -217,20 +225,45 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 						if (j-k)>=0:
 							if (j+(order-k))<=len(words):
 								wordsTmp = words[(j-k):(j+(order-k))]
-								forms = [formList[wordTmp] for wordTmp in wordsTmp]
+								forms = [formList[wordList[wordTmp]['index']] for wordTmp in wordsTmp]
 								forms[k] = wordPlaceholder
-								orderList[word] = orderList[word] + seqOrdConv(forms,perm1,perm2)
+								orderList[index] = orderList[index] + seqOrdConv(forms,perm1,perm2)
 			#done a paragraph
+			del(forms) #so that we can resize formList later
+			contextList.flush()
+			orderList.flush()
 			queueFromLearner.put(['paragraphs'])
 			queueFromLearner.put(['tokens',len(words)])
 			if not queueToLearner.empty():
-				tmp = open('wikiBEAGLEdata/'+str(coreNum),'wb')
-				cPickle.dump([freqList,formList,contextList,orderList],tmp)
+				try:
+					del formList
+					del contextList
+					del orderList
+				except:
+					pass
+				tmp = open('wikiBEAGLEdata/'+str(coreNum)+'/wordList','wb')
+				cPickle.dump(wordList,tmp)
 				tmp.close()
 				sys.exit()
 
 
-def startLearners(runNum):
+def startLearners():
+	if not os.path.exists('wikiBEAGLEdata'):
+		os.mkdir('wikiBEAGLEdata')
+		runNum = 0
+	else:
+		files = os.listdir('wikiBEAGLEdata')
+		i = 0
+		while i < len(files):
+			if (files[i][0]=='.') or (files[i]=='context') or (files[i]=='order') or (files[i]=='wordList'):
+				trash = files.pop(i)
+				del trash
+			else:
+				i = i + 1
+		if len(files)>0:
+			runNum = max(map(int,files))+1
+		else:
+			runNum = 0
 	for i in range(numCores):
 		exec('learnerProcess'+str(i)+' = multiprocessing.Process(target=learnerLoop,args=('+str(runNum+i)+',queueToLearner,queueFromLearner,))')
 		exec('learnerProcess'+str(i)+'.start()')
@@ -276,24 +309,7 @@ os.system('clear')
 timeToPrint = str(datetime.timedelta(seconds=round(timeTaken + (time.time()-lastUpdateTime))))
 print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
 
-if not os.path.exists('wikiBEAGLEdata'):
-	os.mkdir('wikiBEAGLEdata')
-	runNum = 0
-else:
-	files = os.listdir('wikiBEAGLEdata')
-	i = 0
-	while i < len(files):
-		if files[i][0]=='.':
-			trash = files.pop(i)
-			del trash
-		else:
-			i = i + 1
-	if len(files)>0:
-		runNum = max(map(int,files))+1
-	else:
-		runNum = 0
-
-startLearners(runNum)
+startLearners()
 
 while len(multiprocessing.active_children())>0:
 	if len(multiprocessing.active_children())<numCores:
