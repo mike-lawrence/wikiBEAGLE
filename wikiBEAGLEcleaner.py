@@ -18,8 +18,8 @@ def filterFileList(files,filter):
 	
 if os.path.exists('wikiBEAGLEdata'):
 	files = os.listdir('wikiBEAGLEdata')
-	oldFiles = ('context' in files) and ('order' in files) and ('wordList' in files)
-	files = filterFileList(files,['.','c','o','w'])
+	oldFiles = ('context' in files) and ('order' in files) and ('indexList' in files)
+	files = filterFileList(files,['.','c','o','f','p','i'])
 	if len(files)>1:
 		startTime = time.time()
 		print 'wikiBEAGLEcleaner\n\nCleaning...'
@@ -27,12 +27,12 @@ if os.path.exists('wikiBEAGLEdata'):
 			file = files.pop(0)
 			shutil.move('wikiBEAGLEdata/'+file+'/context','wikiBEAGLEdata/context')
 			shutil.move('wikiBEAGLEdata/'+file+'/order','wikiBEAGLEdata/order')
-			shutil.move('wikiBEAGLEdata/'+file+'/wordList','wikiBEAGLEdata/wordList')
+			shutil.move('wikiBEAGLEdata/'+file+'/indexList','wikiBEAGLEdata/indexList')
 			shutil.rmtree('wikiBEAGLEdata/'+file)
-		f = open('wikiBEAGLEdata/wordList','r')
-		wordList = cPickle.load(f)
-		f.close()
-		numWords = len(wordList)
+		f = open('wikiBEAGLEdata/indexList','r')
+		indexList = cPickle.load(f)
+		f.close()		
+		numWords = len(indexList)
 		contextList = numpy.memmap('wikiBEAGLEdata/context', mode='r+', dtype='float')
 		vectorLength = contextList.size/numWords
 		contextList.resize((numWords,vectorLength))
@@ -44,38 +44,35 @@ if os.path.exists('wikiBEAGLEdata'):
 			os.system('clear')
 			print 'wikiBEAGLEcleaner\n\nCleaning...'
 			print '\n\nFiles left: '+str(len(files)+1)
-			f = open('wikiBEAGLEdata/'+file+'/wordList','r')
-			thisWordList = cPickle.load(f)
+			f = open('wikiBEAGLEdata/'+file+'/indexList','r')
+			thisIndexList = cPickle.load(f)
 			f.close()
-			thisWordNum = len(thisWordList)
+			thisNumWords = len(thisIndexList)
 			thisContextList = numpy.memmap('wikiBEAGLEdata/'+file+'/context', mode='r+', dtype='float')
-			thisContextList.resize((thisWordNum,vectorLength))
+			thisContextList.resize((thisNumWords,vectorLength))
 			thisOrderList = numpy.memmap('wikiBEAGLEdata/'+file+'/order', mode='r+', dtype='float')
-			thisOrderList.resize((thisWordNum,vectorLength))
-			for j in thisWordList:
-				if j in wordList:
-					wordList[j]['frequency'] += thisWordList[j]['frequency']
-					contextList[wordList[j]['index']] += thisContextList[thisWordList[j]['index']]
-					orderList[wordList[j]['index']] += thisOrderList[thisWordList[j]['index']]
+			thisOrderList.resize((thisNumWords,vectorLength))
+			for j in thisIndexList:
+				if j in indexList:
+					contextList[indexList[j]] += thisContextList[thisIndexList[j]]
+					orderList[indexList[j]] += thisOrderList[thisIndexList[j]]
 				else:
-					wordList[j] = {}
-					wordList[j]['frequency'] = thisWordList[j]['frequency']
-					numWords = len(wordList)
-					wordList[j]['index'] = numWords
+					numWords = len(indexList)+1
+					indexList[j] = numWords
 					del contextList
 					del orderList
 					contextList = numpy.memmap('wikiBEAGLEdata/context', mode='r+', dtype='float', shape=(numWords,vectorLength))
 					orderList = numpy.memmap('wikiBEAGLEdata/order', mode='r+', dtype='float', shape=(numWords,vectorLength))
-					contextList[numWords-1] = thisContextList[thisWordList[j]['index']]
-					orderList[numWords-1] = thisOrderList[thisWordList[j]['index']]
-			del thisWordList,thisContextList,thisOrderList
+					contextList[numWords-1] = thisContextList[thisIndexList[j]]
+					orderList[numWords-1] = thisOrderList[thisIndexList[j]]
+			del thisIndexList,thisContextList,thisOrderList
 			shutil.rmtree('wikiBEAGLEdata/'+file)
 		os.system('clear')
 		print 'wikiBEAGLEcleaner\n\nSaving...'
-		tmp = open('wikiBEAGLEdata/wordList','wb')
-		cPickle.dump(wordList,tmp)
+		tmp = open('wikiBEAGLEdata/indexList','wb')
+		cPickle.dump(indexList,tmp)
 		tmp.close()
 		del contextList,orderList
 		os.system('clear')
-		print 'wikiBEAGLEcleaner\n\nCleaned.\n\nWords: '+str(len(wordList))+'  Tokens: '+str(sum(item['frequency'] for key,item in wordList.items()))+'  Time to aggregate: '+str(datetime.timedelta(seconds=round(time.time()-startTime)))
+		print 'wikiBEAGLEcleaner\n\nCleaned. Time to aggregate: '+str(datetime.timedelta(seconds=round(time.time()-startTime)))+'\n\n'
 		
