@@ -1,16 +1,11 @@
-import sys
-
-if len(sys.argv)==1:
-	numCores = 1
-else:
-	numCores = int(sys.argv[1])
-
-#set the length of the vectors
+#set the length of the vectors (don't change this after you've begun learning)
 vectorLength = 2**10
 
-#set the amount of free memory (%) below which cleaning will take place
-lowMemCleanPoint = 10
+########
+# Import all the modules we'll need
+########
 
+import sys
 import datetime
 import multiprocessing
 import signal
@@ -22,19 +17,54 @@ import cPickle
 import urllib2
 import os
 import shutil
+import tty
+import select
 
-#define a function to check the available memory
-def checkFreeMemory():
-	m = os.popen('ps -axmo %mem')
-	m = m.readlines()
-	m = m[1:-1]
-	for i in range(len(m)): m[i] = m[i].replace('\n','')
-	for i in range(len(m)): m[i] = m[i].replace(' ','')
-	for i in range(len(m)): m[i] = m[i].replace('.','')
-	for i in range(len(m)): m[i] = int(m[i])
-	free = 100-(sum(m)/10)
-	return free
 
+########
+# Check if multiple cores were requested
+########
+
+if len(sys.argv)==1:
+	numCores = 1
+else:
+	numCores = int(sys.argv[1])
+
+
+########
+# Classes to handle quitting safely (from: http://code.activestate.com/recipes/203830/)
+########
+
+class NotTTYException(Exception): pass
+
+class TerminalFile:
+    def __init__(self,infile):
+        if not infile.isatty():
+            raise NotTTYException()
+        self.file=infile
+
+        #prepare for getch
+        self.save_attr=tty.tcgetattr(self.file)
+        newattr=self.save_attr[:]
+        newattr[3] &= ~tty.ECHO & ~tty.ICANON
+        tty.tcsetattr(self.file, tty.TCSANOW, newattr)
+
+    def __del__(self):
+        #restoring stdin
+        import tty  #required this import here
+        tty.tcsetattr(self.file, tty.TCSADRAIN, self.save_attr)
+
+    def getch(self):
+        if select.select([self.file],[],[],0)[0]:
+            c=self.file.read(1)
+        else:
+            c=''
+        return c
+
+
+########
+# Some text cleaning functions
+########
 
 #define a function to delete some html in text
 def delHtml(text):
@@ -87,7 +117,9 @@ def cleanPage(page):
 	return pageLinesFinal
 
 
-#define some functions (borrowed from holoword.py)
+########
+# Functions borrowed from holoword.py
+########
 
 def normalize(a):
 	'''
@@ -119,7 +151,7 @@ def seqOrdConv(l , p1, p2 ):
 	return reduce(lambda a,b: normalize(ordConv(a, b, p1, p2)), l)
 
 
-#modified from holoword.py
+#modified from holoword.py to use the number vectors instead of characters
 def getOpenNGrams(word, charVecList, charPlaceholder):
 	ngrams = []
 	sizes = range(len(word))[2:len(word)]
@@ -144,7 +176,10 @@ def getOpenNGrams(word, charVecList, charPlaceholder):
 	return ngrams
 
 
-#initialize the character, placeholder and permutation vectors
+########
+# Initialize the character, placeholder and permutation vectors
+########
+
 numpy.random.seed(112358) #set the numpy random seed for (some) replicability
 chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '-']
 charVecList = {}
@@ -155,25 +190,57 @@ wordPlaceholder = normalize(numpy.random.randn(vectorLength) * vectorLength**-0.
 perm1 = numpy.random.permutation(vectorLength)
 perm2 = numpy.random.permutation(vectorLength)
 
+########
+# Initialize an object that can open urls
+########
 
-#initialize an object that can open urls
 opener = urllib2.build_opener()
 opener.addheaders = [('User-agent', 'Mozilla/5.0')]
+
+
+########
+# Initialize some multiprocessing queues
+########
 
 queueToLearner = multiprocessing.Queue()
 queueFromLearner = multiprocessing.Queue()
 
 
-def learnerLoop(coreNum,queueToLearner,queueFromLearner):
-	def signalHandler(signal, frame):
-		pass
-	
-	signal.signal(signal.SIGINT, signalHandler)
+########
+# Initialize the multiprocessing manager (and any old frequency data)
+########
+
+manager = multiprocessing.Manager()
+if os.path.exists('wikiBEAGLEdata/freqList'):
+	tmp = open('wikiBEAGLEdata/freqList')
+	freqList = manager.dict(cPickle.load(tmp))
+	tmp.close()
+else:
+	freqList = manager.dict() #to share across learners
+
+
+########
+# Define the loop performed by each learner
+########
+
+def learnerLoop(freqList,coreNum,queueToLearner,queueFromLearner):
 	os.mkdir('wikiBEAGLEdata/'+str(coreNum))
-	wordList = {}
+	indexList = {}
 	while True:
 		page = 0
 		while page==0:
+			if not queueToLearner.empty():
+				try:
+					del formList
+					del contextList
+					del orderList
+				except:
+					pass
+				tmp = open('wikiBEAGLEdata/'+str(coreNum)+'/indexList','wb')
+				cPickle.dump(indexList,tmp)
+				tmp.close()				
+				queueFromLearner.put('done')
+				sys.exit()
 			try:
 				page = opener.open('http://en.wikipedia.org/wiki/Special:Random')
 			except:
@@ -183,57 +250,6 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 				if len(pageLines)==0:
 					page = 0
 		for line in pageLines:
-			uniqueWords = {}
-			words = line.split(' ')
-			for word in words:
-				if word not in uniqueWords:
-					uniqueWords[word] = 1
-				else:
-					uniqueWords[word] += 1
-			for word in uniqueWords:
-				if not word in wordList:
-					newSize = len(wordList)+1
-					if newSize==1:
-						formList = numpy.zeros(shape=(newSize,vectorLength))
-						contextList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/context', mode='w+', dtype='float', shape=(newSize,vectorLength))
-						orderList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/order', mode='w+', dtype='float', shape=(newSize,vectorLength))						
-					else:
-						formList.resize((newSize,vectorLength))
-						del contextList
-						del orderList
-						contextList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/context', mode='r+', dtype='float', shape=(newSize,vectorLength))
-						orderList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/order', mode='r+', dtype='float', shape=(newSize,vectorLength))
-					formList[newSize-1] = normalize(numpy.add.reduce([seqOrdConv(ngram,perm1,perm2) for ngram in getOpenNGrams(word, charVecList, charPlaceholder)]))
-					wordList[word] = {}
-					wordList[word]['frequency'] = uniqueWords[word]
-					wordList[word]['index'] = newSize-1
-				else:
-					wordList[word]['frequency'] += uniqueWords[word]
-			#perform encoding
-			for j in range(len(words)):
-				word = words[j]
-				index = wordList[word]['index']
-				#context encoding
-				for k in range(len(words)):
-					if j!=k:
-						addWord = wordList[words[k]]
-						contextList[index] = contextList[index] + formList[addWord['index']]/addWord['frequency'] #weighting contribution by inverse frequency
-				#order encoding
-				for order in [1,2,3,4,5,6,7]: #only encode up to 7-grams
-					order = order + 1
-					for k in range(order):
-						if (j-k)>=0:
-							if (j+(order-k))<=len(words):
-								wordsTmp = words[(j-k):(j+(order-k))]
-								forms = [formList[wordList[wordTmp]['index']] for wordTmp in wordsTmp]
-								forms[k] = wordPlaceholder
-								orderList[index] = orderList[index] + seqOrdConv(forms,perm1,perm2)
-			#done a paragraph
-			del(forms) #so that we can resize formList later
-			contextList.flush()
-			orderList.flush()
-			queueFromLearner.put(['paragraphs'])
-			queueFromLearner.put(['tokens',len(words)])
 			if not queueToLearner.empty():
 				try:
 					del formList
@@ -241,10 +257,76 @@ def learnerLoop(coreNum,queueToLearner,queueFromLearner):
 					del orderList
 				except:
 					pass
-				tmp = open('wikiBEAGLEdata/'+str(coreNum)+'/wordList','wb')
-				cPickle.dump(wordList,tmp)
-				tmp.close()
+				tmp = open('wikiBEAGLEdata/'+str(coreNum)+'/indexList','wb')
+				cPickle.dump(indexList,tmp)
+				tmp.close()				
+				queueFromLearner.put('done')
 				sys.exit()
+			uniqueWords = {}
+			words = line.split(' ')
+			queueFromLearner.put(['tokens',len(words)])
+			for word in words:
+				if word not in uniqueWords:
+					uniqueWords[word] = 1
+				else:
+					uniqueWords[word] += 1
+			for word in uniqueWords:
+				if (not (word in indexList)): #word is new to this learner
+					newSize = len(indexList)+1
+					if newSize==1: #first new word, initialize lists
+						formList = numpy.zeros(shape=(newSize,vectorLength))
+						contextList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/context', mode='w+', dtype='float', shape=(newSize,vectorLength))
+						orderList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/order', mode='w+', dtype='float', shape=(newSize,vectorLength))						
+					else: #resize existinglists
+						formList.resize((newSize,vectorLength))
+						del contextList
+						del orderList
+						contextList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/context', mode='r+', dtype='float', shape=(newSize,vectorLength))
+						orderList = numpy.memmap('wikiBEAGLEdata/'+str(coreNum)+'/order', mode='r+', dtype='float', shape=(newSize,vectorLength))
+					formList[newSize-1] = normalize(numpy.add.reduce([seqOrdConv(ngram,perm1,perm2) for ngram in getOpenNGrams(word, charVecList, charPlaceholder)]))
+					indexList[word] = newSize-1
+				if word in freqList:
+					freqList[word] += uniqueWords[word]
+				else:
+					freqList[word] = uniqueWords[word]
+			#perform encoding
+			for j in range(len(words)):
+				word = words[j]
+				index = indexList[word]
+				#context encoding
+				for k in range(len(words)):
+					if j!=k:
+						contextList[index] = contextList[index] + formList[indexList[words[k]]]/freqList[words[k]] #weighting contribution by inverse frequency
+				#order encoding
+				for order in [1,2,3,4,5,6,7]: #only encode up to 7-grams
+					order = order + 1
+					for k in range(order):
+						if (j-k)>=0:
+							if (j+(order-k))<=len(words):
+								wordsTmp = words[(j-k):(j+(order-k))]
+								forms = [formList[indexList[wordTmp]] for wordTmp in wordsTmp]
+								forms[k] = wordPlaceholder
+								orderList[index] += seqOrdConv(forms,perm1,perm2)
+			#done a paragraph
+			del(forms) #so that we can resize formList later
+			contextList.flush()
+			orderList.flush()
+			queueFromLearner.put('paragraph')
+		queueFromLearner.put('page')
+
+
+########
+# Define a function to start the learners
+########
+def filterFileList(files,filter):
+	i = 0
+	while i < len(files):
+		if files[i][0] in filter:
+			trash = files.pop(i)
+			del trash
+		else:
+			i = i + 1
+	return files
 
 
 def startLearners():
@@ -253,88 +335,110 @@ def startLearners():
 		runNum = 0
 	else:
 		files = os.listdir('wikiBEAGLEdata')
-		i = 0
-		while i < len(files):
-			if (files[i][0]=='.') or (files[i]=='context') or (files[i]=='order') or (files[i]=='wordList'):
-				trash = files.pop(i)
-				del trash
-			else:
-				i = i + 1
+		files = filterFileList(files,['.','c','o','f','p','i'])
 		if len(files)>0:
 			runNum = max(map(int,files))+1
 		else:
 			runNum = 0
 	for i in range(numCores):
-		exec('learnerProcess'+str(i)+' = multiprocessing.Process(target=learnerLoop,args=('+str(runNum+i)+',queueToLearner,queueFromLearner,))')
+		exec('learnerProcess'+str(i)+' = multiprocessing.Process(target=learnerLoop,args=(freqList,'+str(runNum+i)+',queueToLearner,queueFromLearner,))')
 		exec('learnerProcess'+str(i)+'.start()')
 
 
-def killAndCleanUp():
-	global paragraphNum
-	global tokenNum
-	print '\nKilling learners...'
+########
+# Define a function to stop the learners
+########
+
+def killAndCleanUp(pageNum, paragraphNum, tokenNum, timeTaken):
+	learners_alive = numCores
+	os.system('clear')
+	wordNum = len(freqList)
+	timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
+	print 'wikiBEAGLE\n\nPages: '+str(pageNum)+'  Paragraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
+	print '\nKilling learners... still alive: ' + str(learners_alive)
+	lastUpdateTime = time.time()
 	queueToLearner.put('die')
 	dataList = []
-	while len(multiprocessing.active_children())>0:
+	while learners_alive>0:
 		if queueFromLearner.empty():
 			time.sleep(1)
 		else:
 			message = queueFromLearner.get()
-			if message[0]=='paragraphs':
+			if message=='done':
+				learners_alive -= 1
+			elif message=='page':
+				pageNum += 1
+			elif message=='paragraph':
 				paragraphNum += 1
 			elif message[0]=='tokens':
 				tokenNum = tokenNum + message[1]
-	tmp = open('wikiBEAGLEprogress.txt','w')
-	tmp.write('\n'.join(map(str,[paragraphNum, tokenNum, int(round(timeTaken))])))
+		if (time.time()-lastUpdateTime)>1:
+			timeTaken += (time.time()-lastUpdateTime)
+			lastUpdateTime = time.time()
+			os.system('clear')
+			wordNum = len(freqList)
+			timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
+			print 'wikiBEAGLE\n\nPages: '+str(pageNum)+'  Paragraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
+			print '\nKilling learners... still alive: ' + str(learners_alive)
+	timeTaken += (time.time()-lastUpdateTime)
+	os.system('clear')
+	wordNum = len(freqList)
+	timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
+	print 'wikiBEAGLE\n\nPages: '+str(pageNum)+'  Paragraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint+'\n\n'
+	tmp = open('wikiBEAGLEdata/progress.txt','w')
+	tmp.write('\n'.join(map(str,[pageNum, paragraphNum, wordNum, tokenNum, int(round(timeTaken))])))
 	tmp.close()
+	tmp = open('wikiBEAGLEdata/freqList','wb')
+	cPickle.dump(dict(freqList),tmp)
+	tmp.close()
+	return [pageNum,paragraphNum,tokenNum]
 
 
-def signalHandler(signal, frame):
-	killAndCleanUp()
-	sys.exit()
+########
+# Initialize progress record
+########
 
-signal.signal(signal.SIGINT, signalHandler)
-
-if os.path.exists('wikiBEAGLEprogress.txt'):
-	tmp = open('wikiBEAGLEprogress.txt','r')
-	paragraphNum, tokenNum, timeTaken = map(int,tmp.readlines())
+if os.path.exists('wikiBEAGLEdata/progress.txt'):
+	tmp = open('wikiBEAGLEdata/progress.txt','r')
+	pageNum, paragraphNum, wordNum, tokenNum, timeTaken = map(int,tmp.readlines())
 	tmp.close()
 else:
+	pageNum = 0
 	paragraphNum = 0
 	tokenNum = 0
 	timeTaken = 0
 
 lastUpdateTime = time.time()
 os.system('clear')
+wordNum = len(freqList)
 timeToPrint = str(datetime.timedelta(seconds=round(timeTaken + (time.time()-lastUpdateTime))))
-print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint
+print 'wikiBEAGLE\n\nPages: '+str(pageNum)+'  Paragraphs: '+str(paragraphNum)+'  Words: '+str(wordNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint+'\n\n(Press "q" to quit)'
 
+########
+# Go!
+########
+stdin = TerminalFile(sys.stdin)
 startLearners()
-
-while len(multiprocessing.active_children())>0:
-	if len(multiprocessing.active_children())<numCores:
-		print '\nSomething went awry; cleaning up just in case:'
-		killAndCleanUp()
-		print '\nRestarting learners...'
-		startLearners()
-	if queueFromLearner.empty():
-		time.sleep(1)
+while True:
+	if stdin.getch()=='q':
+		killAndCleanUp(pageNum, paragraphNum, tokenNum, timeTaken)
+		sys.exit()
 	else:
-		message = queueFromLearner.get()
-		if message[0]=='paragraphs':
-			paragraphNum += 1
-		elif message[0]=='tokens':
-			tokenNum = tokenNum + message[1]
-	if (time.time()-lastUpdateTime)>1:
-		timeTaken += (time.time()-lastUpdateTime)
-		lastUpdateTime = time.time()
-		os.system('clear')
-		timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
-		freeMem = checkFreeMemory()
-		print 'wikiBEAGLE\n\nParagraphs: '+str(paragraphNum)+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint+'  Free Memory: '+str(freeMem)+'%'
-		if freeMem<lowMemCleanPoint:
-			print '\nMemory low, cleaning up:'
-			killAndCleanUp()
-			print '\nRestarting learners...'
-			startLearners()
+		if queueFromLearner.empty():
+			time.sleep(1)
+		else:
+			message = queueFromLearner.get()
+			if message=='page':
+				pageNum += 1
+			elif message=='paragraph':
+				paragraphNum += 1
+			elif message[0]=='tokens':
+				tokenNum = tokenNum + message[1]
+		if (time.time()-lastUpdateTime)>1:
+			timeTaken += (time.time()-lastUpdateTime)
+			lastUpdateTime = time.time()
+			os.system('clear')
+			wordNum = len(freqList)
+			timeToPrint = str(datetime.timedelta(seconds=round(timeTaken)))
+			print 'wikiBEAGLE\n\nPages: '+str(pageNum)+'  Paragraphs: '+str(paragraphNum)+'  Words: '+str(len(freqList))+'  Tokens: '+str(tokenNum)+'  Time: '+timeToPrint+'\n\n(Press "q" to quit)'
 
