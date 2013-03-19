@@ -58,7 +58,7 @@ if os.path.exists('wikiBEAGLEdata'):
 					orderList[indexList[j]] += thisOrderList[thisIndexList[j]]
 				else:
 					numWords = len(indexList)+1
-					indexList[j] = numWords
+					indexList[j] = numWords-1
 					del contextList
 					del orderList
 					contextList = numpy.memmap('wikiBEAGLEdata/context', mode='r+', dtype='float', shape=(numWords,vectorLength))
