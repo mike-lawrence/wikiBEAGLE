@@ -1,6 +1,7 @@
 import numpy
 from scipy import spatial
 import cPickle
+import math
 
 ########
 # Functions borrowed from holoword.py
@@ -67,18 +68,53 @@ def getOpenNGrams(word, charVecList, charPlaceholder):
 f = open('wikiBEAGLEdata/indexList','r')
 indexList = cPickle.load(f)
 f.close()		
+f = open('wikiBEAGLEdata/freqList','r')
+freqList = cPickle.load(f)
+f.close()		
 numWords = len(indexList)
-contextList = numpy.memmap('wikiBEAGLEdata/context', mode='r+', dtype='float')
+contextList = numpy.memmap('wikiBEAGLEdata/context', mode='r', dtype='float')
 vectorLength = contextList.size/numWords
 contextList.resize((numWords,vectorLength))
-orderList = numpy.memmap('wikiBEAGLEdata/order', mode='r+', dtype='float')
+orderList = numpy.memmap('wikiBEAGLEdata/order', mode='r', dtype='float')
 orderList.resize((numWords,vectorLength))
+
+#create normalized combination
+#bothList = contextList/((numpy.sum(contextList**2,axis=1)**0.5)[:,numpy.newaxis]) + orderList/((numpy.sum(orderList**2,axis=1)**0.5)[:,numpy.newaxis])
+
+
+v = [value for key,value in indexList.items()]
+k = [key for key,value in indexList.items()]
+vSortIndex = sorted(range(len(v)), key=v.__getitem__)
+v.sort()
+k = [k[i] for i in vSortIndex]
+mismatches = [(i,j) for i,j in zip(v,range(len(v))) if i!=j]
+print len(mismatches)
+# while len(mismatches)>0:
+# 	firstMismatch = mismatches[0][1]
+# 	v[firstMismatch:] = [i-1 for i in v[firstMismatch:]]
+# 	mismatches = [(i,j) for i,j in zip(v,range(len(v))) if i!=j]
+# 
+# indexList = {}
+# for i in range(len(k)):
+# 	indexList[k[i]] = v[i]
+# 
+# f = open('wikiBEAGLEdata/indexList','w')
+# cPickle.dump(indexList,f)
+# f.close()		
+
+#check the highest frequency words
+# k = [key for key,value in freqList.items()]
+# v = [value for key,value in freqList.items()]
+# o = numpy.argsort(v)[::-1]
+# v = numpy.sort(v)[::-1]
+# k = [k[i] for i in o]
+
 
 ########
 # Initialize the character, placeholder and permutation vectors
 ########
 numpy.random.seed(112358) #set the numpy random seed for (some) replicability
-chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '-']
+chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '`', "'", '-', ',', ';', ':', '.', '!', '?']
 charVecList = {}
 for char in chars:
 	charVecList[char] = normalize(numpy.random.randn(vectorLength) * vectorLength**-0.5)
@@ -93,7 +129,7 @@ perm2 = numpy.random.permutation(vectorLength)
 # Encode the probe
 ########
 
-probeText = 'he took the warm bread out of the _'
+probeText = "` he took the warm bread out of the _ . '"
 words = probeText.split(' ')
 formList = {}
 i = 0
@@ -115,23 +151,123 @@ for order in [1,2,3,4,5,6,7]: #only encode up to 7-grams
 			if (j+(order-k))<=len(words):
 				probe += seqOrdConv([formList[wordTmp] for wordTmp in words[(j-k):(j+(order-k))]],perm1,perm2)
 
+
 ########
 # compare probe to memory
 ########
 
-resonance = spatial.distance.cdist(probe,orderList,'cosine')[0]
-
-sortedResonanceIndices = numpy.argsort(resonance)[::-1]
-sortedResonance = numpy.sort(resonance)[::-1]
-
+distance = spatial.distance.cdist(probe,orderList,'cosine')[0]
+sortedDistanceIndices = numpy.argsort(distance)#[::-1]
+sortedDistance = numpy.sort(distance)#[::-1]
 top10resonators = []
 for i in range(10):
-	top10resonators.append([[key for key,value in indexList.items() if value == sortedResonanceIndices[i]],sortedResonance[i]])
+	top10resonators.append([[key for key,value in indexList.items() if value == sortedDistanceIndices[i]],sortedDistance[i]])
 
 print top10resonators
 
 wordsToCheck = ['oven','stove','bag','package','car','elephant']
 for i in range(len(wordsToCheck)):
-	wordsToCheck[i] = [wordsToCheck[i],resonance[indexList[wordsToCheck[i]]]]
+	wordsToCheck[i] = [wordsToCheck[i],distance[indexList[wordsToCheck[i]]]]
 
 print wordsToCheck
+
+
+########
+# check the semantic relatedness to a specific word
+########
+
+distance = spatial.distance.cdist(contextList[indexList['teacher']].reshape((1,vectorLength)),contextList,'cosine')[0]
+# f = numpy.array([value for key,value in freqList.items()])
+# fmax = numpy.max(f)*1.0
+# q = f/fmax#numpy.log2(f/fmax)#/math.log(1.0/fmax,2)
+# distance = distance*q
+sortedDistanceIndices = numpy.argsort(distance)#[::-1]
+sortedDistance = numpy.sort(distance)#[::-1]
+top10resonators = []
+for i in range(20):
+	top10resonators.append([[[key,freqList[key]] for key,value in indexList.items() if value == sortedDistanceIndices[i]],sortedDistance[i]])
+
+print top10resonators
+
+
+########
+# Replicate context PCA
+########
+itemList = ['astronomy','physics','chemistry','psychology','biology','scientific','mathematics','technology','science','scientists','research','sports','team','teams','football','coach','players','sport','baseball','soccer','tennis','basketball','savings','finance','pay','invested','loaned','borrow','lend','invest','investments','bank','spend','save']
+
+tmp = [contextList[index] for index in [indexList[key] for key in itemList]]
+numpy.savetxt('temp.txt',tmp)
+
+
+##R code:
+# library(FactoMineR)
+# library(ggplot2)
+# a = scan('temp.txt')
+# a = matrix(a,ncol=1024,byrow=F)
+# wordList = c('astronomy','physics','chemistry','psychology','biology','scientific','mathematics','technology','science','scientists','research','sports','team','teams','football','coach','players','sport','baseball','soccer','tennis','basketball','savings','finance','pay','invested','loaned','borrow','lend','invest','investments','bank','spend','save')
+# b = PCA(a,scale=F,graph=F)
+# b = as.data.frame(b$ind$coord[,1:2])
+# b$word = wordList
+# ggplot(
+# 	data = b
+# 	, mapping = aes(
+# 		x = Dim.1
+# 		, y = Dim.2
+# 		, label = word
+# 	)
+# )+
+# geom_text()+
+# labs(
+# 	x = 'PC1'
+# 	, y = 'PC2'
+# )+
+# coord_fixed()+
+# theme(
+# 	legend.key = element_blank()
+# 	, legend.background = element_rect(fill='grey50')
+# 	, panel.grid.major = element_blank()
+# 	, panel.grid.minor = element_blank()
+# 	, panel.background = element_rect(fill='grey50')
+# )
+
+
+
+########
+# Replicate order PCA
+########
+
+itemList = ['door','window','fence','sidewalk','table','a','an','those','your','the','my','drive','fight','play','run','move','buy','get','make','above','across','beneath','around','toward','under','in','inside']
+
+tmp = [orderList[index] for index in [indexList[key] for key in itemList]]
+numpy.savetxt('temp.txt',tmp)
+
+##R code:
+# library(ggplot2)
+# library(FactoMineR)
+# a = scan('temp.txt')
+# a = matrix(a,ncol=1024,byrow=F)
+# wordList = c('door','window','fence','sidewalk','table','a','an','those','your','the','my','drive','fight','play','run','move','buy','get','make','above','across','beneath','around','toward','under','in','inside')
+# b = PCA(a,scale=F,graph=F)#[!(wordList%in%c('the','a','in')),]
+# b = as.data.frame(b$ind$coord[,1:2])
+# b$word = wordList#[!(wordList%in%c('the','a','in'))]
+# ggplot(
+# 	data = b
+# 	, mapping = aes(
+# 		x = Dim.1
+# 		, y = Dim.2
+# 		, label = word
+# 	)
+# )+
+# geom_text()+
+# labs(
+# 	x = 'PC1'
+# 	, y = 'PC2'
+# )+
+# coord_fixed()+
+# theme(
+# 	legend.key = element_blank()
+# 	, legend.background = element_rect(fill='grey50')
+# 	, panel.grid.major = element_blank()
+# 	, panel.grid.minor = element_blank()
+# 	, panel.background = element_rect(fill='grey50')
+# )
