@@ -68,9 +68,6 @@ def getOpenNGrams(word, charVecList, charPlaceholder):
 f = open('wikiBEAGLEdata/indexList','r')
 indexList = cPickle.load(f)
 f.close()		
-f = open('wikiBEAGLEdata/freqList','r')
-freqList = cPickle.load(f)
-f.close()		
 numWords = len(indexList)
 contextList = numpy.memmap('wikiBEAGLEdata/context', mode='r', dtype='float')
 vectorLength = contextList.size/numWords
@@ -101,13 +98,6 @@ print len(mismatches)
 # f = open('wikiBEAGLEdata/indexList','w')
 # cPickle.dump(indexList,f)
 # f.close()		
-
-#check the highest frequency words
-# k = [key for key,value in freqList.items()]
-# v = [value for key,value in freqList.items()]
-# o = numpy.argsort(v)[::-1]
-# v = numpy.sort(v)[::-1]
-# k = [k[i] for i in o]
 
 
 ########
@@ -185,7 +175,7 @@ sortedDistanceIndices = numpy.argsort(distance)#[::-1]
 sortedDistance = numpy.sort(distance)#[::-1]
 top10resonators = []
 for i in range(20):
-	top10resonators.append([[[key,freqList[key]] for key,value in indexList.items() if value == sortedDistanceIndices[i]],sortedDistance[i]])
+	top10resonators.append([[key for key,value in indexList.items() if value == sortedDistanceIndices[i]],sortedDistance[i]])
 
 print top10resonators
 
